@@ -1,0 +1,798 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Fraction Jump</title>
+<style>
+  :root{
+    --bg-sky-1:#0b0033;
+    --bg-sky-2:#1a0a4d;
+    --river:#0b3d91;
+    --river-2:#124fb0;
+    --stone:#7a6a53;
+    --stone-edge:#4d4133;
+    --neon-green:#39ff88;
+    --neon-cyan:#3df5ff;
+    --neon-magenta:#ff3df0;
+    --neon-yellow:#fff23d;
+    --neon-red:#ff3d5a;
+    --panel:#120830;
+  }
+  *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body{
+    margin:0; padding:0; width:100%; height:100%;
+    background:#000;
+    font-family:'Courier New', Courier, monospace;
+    overflow:hidden;
+    user-select:none;
+  }
+  #game{
+    position:relative;
+    width:100vw; height:100vh;
+    background:linear-gradient(180deg,var(--bg-sky-1) 0%, var(--bg-sky-2) 40%, var(--river) 41%, var(--river-2) 100%);
+    display:flex; flex-direction:column; align-items:center; justify-content:flex-start;
+  }
+  /* CRT scanline overlay */
+  #scanlines{
+    position:absolute; inset:0; pointer-events:none; z-index:50;
+    background:repeating-linear-gradient(
+      to bottom,
+      rgba(0,0,0,0.18) 0px,
+      rgba(0,0,0,0.18) 1px,
+      rgba(0,0,0,0) 2px,
+      rgba(0,0,0,0) 3px
+    );
+    mix-blend-mode:multiply;
+  }
+  #vignette{
+    position:absolute; inset:0; pointer-events:none; z-index:51;
+    box-shadow: inset 0 0 12vw rgba(0,0,0,0.65);
+  }
+
+  .pixel-text{
+    font-family:'Courier New', Courier, monospace;
+    font-weight:700;
+    letter-spacing:2px;
+    image-rendering:pixelated;
+  }
+
+  /* ---------- HUD ---------- */
+  #hud{
+    position:relative; z-index:10;
+    width:100%; max-width:900px;
+    padding:10px 14px 6px;
+    display:flex; justify-content:space-between; align-items:flex-start;
+    gap:8px;
+    flex-wrap:wrap;
+  }
+  .hud-box{
+    background:var(--panel);
+    border:2px solid var(--neon-cyan);
+    box-shadow:0 0 8px var(--neon-cyan), inset 0 0 6px rgba(61,245,255,0.3);
+    padding:6px 10px;
+    color:var(--neon-cyan);
+    font-size:12px;
+    line-height:1.5;
+    white-space:nowrap;
+  }
+  .hud-box b{ color:var(--neon-yellow); text-shadow:0 0 4px var(--neon-yellow); }
+  #lives{ color:var(--neon-red); }
+  #lives .heart{ text-shadow:0 0 6px var(--neon-red); }
+
+  #target-panel{
+    text-align:center;
+    background:var(--panel);
+    border:2px solid var(--neon-magenta);
+    box-shadow:0 0 10px var(--neon-magenta), inset 0 0 6px rgba(255,61,240,0.3);
+    padding:6px 16px;
+    color:#fff;
+    min-width:160px;
+  }
+  #target-label{ font-size:10px; color:var(--neon-magenta); letter-spacing:3px; }
+  #target-frac{ font-size:26px; color:var(--neon-yellow); text-shadow:0 0 8px var(--neon-yellow); margin-top:2px; }
+
+  #timer-wrap{
+    width:100%; max-width:900px;
+    padding:4px 14px;
+    position:relative; z-index:10;
+  }
+  #timer-bar-bg{
+    width:100%; height:14px;
+    background:#1a1a1a;
+    border:2px solid var(--neon-green);
+    box-shadow:0 0 6px var(--neon-green);
+    overflow:hidden;
+  }
+  #timer-bar{
+    height:100%;
+    width:100%;
+    background:linear-gradient(90deg, var(--neon-green), var(--neon-cyan));
+    transition:width 0.08s linear, background 0.3s;
+  }
+
+  /* ---------- River / stage ---------- */
+  #stage{
+    position:relative;
+    flex:1;
+    width:100%;
+    max-width:1000px;
+    overflow:hidden;
+  }
+  .cloud{
+    position:absolute; top:6%; opacity:0.5;
+    font-size:22px; color:#fff; text-shadow:0 0 6px #fff;
+  }
+  .bank{
+    position:absolute; left:0; right:0; bottom:0; height:26%;
+    background:#123b1f;
+    border-top:4px solid #1f6b34;
+  }
+  .bank.top{ top:0; bottom:auto; }
+
+  #river-strip{
+    position:absolute; left:0; right:0;
+    top:34%; height:40%;
+  }
+  .wave{
+    position:absolute; left:0; right:0; height:3px;
+    background:rgba(255,255,255,0.15);
+    animation:waveScroll 3s linear infinite;
+  }
+  @keyframes waveScroll{
+    from{ background-position-x:0; }
+    to{ background-position-x:60px; }
+  }
+
+  .stone{
+    position:absolute;
+    bottom:0;
+    width:78px; height:54px;
+    transform:translate(-50%, 0);
+    display:flex; align-items:center; justify-content:center;
+    cursor:pointer;
+    transition:transform 0.15s ease, filter 0.2s;
+  }
+  .stone .rock{
+    width:100%; height:100%;
+    background:radial-gradient(ellipse at 35% 30%, #8f7c5f 0%, var(--stone) 55%, var(--stone-edge) 100%);
+    border:3px solid var(--stone-edge);
+    border-radius:46% 54% 40% 60% / 55% 45% 60% 40%;
+    box-shadow:0 6px 0 rgba(0,0,0,0.35), 0 8px 10px rgba(0,0,0,0.4);
+    display:flex; align-items:center; justify-content:center;
+  }
+  .stone .frac{
+    color:#1a1200;
+    font-weight:700;
+    font-size:15px;
+    text-align:center;
+    line-height:1;
+    text-shadow:0 1px 0 rgba(255,255,255,0.25);
+  }
+  .stone .frac .num, .stone .frac .den{ display:block; }
+  .stone .frac .num{ border-bottom:2px solid #1a1200; padding-bottom:2px; margin-bottom:2px; }
+
+  .stone:hover .rock{ filter:brightness(1.15); }
+  .stone.correct .rock{
+    background:radial-gradient(ellipse at 35% 30%, #7dffa8, #39ff88 55%, #14a352 100%);
+    box-shadow:0 0 18px var(--neon-green), 0 6px 0 rgba(0,0,0,0.35);
+  }
+  .stone.wrong .rock{
+    background:radial-gradient(ellipse at 35% 30%, #ff8f9c, #ff3d5a 55%, #a3142e 100%);
+    box-shadow:0 0 18px var(--neon-red), 0 6px 0 rgba(0,0,0,0.35);
+    animation:shake 0.35s;
+  }
+  .stone.sunk{
+    opacity:0.25;
+    pointer-events:none;
+    transform:translate(-50%, 10px) scale(0.85);
+  }
+  @keyframes shake{
+    0%,100%{ transform:translate(-50%,0) rotate(0deg); }
+    25%{ transform:translate(-56%,0) rotate(-4deg); }
+    75%{ transform:translate(-44%,0) rotate(4deg); }
+  }
+
+  .startpad{
+    position:absolute; bottom:0; left:0; transform:translate(-10%,0);
+    width:70px; height:26%;
+    background:#1f6b34;
+    border-top:4px solid #2f9a4c;
+  }
+
+  #player{
+    position:absolute;
+    bottom:0; left:0;
+    width:46px; height:46px;
+    transform:translate(-50%, 0);
+    z-index:20;
+    transition:none;
+    font-size:34px;
+    text-align:center;
+    line-height:46px;
+    filter:drop-shadow(0 4px 3px rgba(0,0,0,0.5));
+    pointer-events:none;
+  }
+  #player.hop{ animation:hopArc var(--hop-time,0.28s) ease-out; }
+  @keyframes hopArc{
+    0%{ transform:translate(-50%,0) scale(1,1); }
+    35%{ transform:translate(-50%,-46px) scale(1.05,0.95) rotate(var(--rot,0deg)); }
+    100%{ transform:translate(-50%,0) scale(1,1); }
+  }
+
+  /* ---------- Overlays ---------- */
+  .overlay{
+    position:absolute; inset:0; z-index:60;
+    background:rgba(4,0,20,0.92);
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    text-align:center; color:#fff; padding:20px; gap:10px;
+  }
+  .hidden{ display:none !important; }
+  .title{
+    font-size:42px;
+    color:var(--neon-yellow);
+    text-shadow:0 0 6px var(--neon-yellow), 0 0 20px var(--neon-magenta);
+    letter-spacing:4px;
+    margin-bottom:4px;
+  }
+  .subtitle{ color:var(--neon-cyan); font-size:13px; margin-bottom:14px; letter-spacing:2px; }
+  .btn{
+    font-family:inherit;
+    background:var(--panel);
+    border:3px solid var(--neon-green);
+    color:var(--neon-green);
+    box-shadow:0 0 10px var(--neon-green);
+    padding:12px 28px;
+    font-size:16px;
+    letter-spacing:2px;
+    cursor:pointer;
+    margin-top:6px;
+  }
+  .btn:hover{ background:var(--neon-green); color:#001a0a; }
+  .rules{
+    max-width:520px;
+    font-size:13px;
+    line-height:1.7;
+    color:#cfeeff;
+    background:rgba(255,255,255,0.04);
+    border:1px solid rgba(61,245,255,0.4);
+    padding:14px 18px;
+    text-align:left;
+  }
+  .rules b{ color:var(--neon-yellow); }
+  #finalScore{ font-size:22px; color:var(--neon-yellow); margin:6px 0; }
+  #levelUpToast{
+    position:absolute; top:38%; left:50%; transform:translate(-50%,-50%);
+    z-index:55; color:var(--neon-yellow); font-size:30px;
+    text-shadow:0 0 10px var(--neon-yellow), 0 0 24px var(--neon-magenta);
+    opacity:0; pointer-events:none;
+  }
+  #levelUpToast.show{ animation:toastPop 1.1s ease-out; }
+  @keyframes toastPop{
+    0%{ opacity:0; transform:translate(-50%,-40%) scale(0.6); }
+    20%{ opacity:1; transform:translate(-50%,-50%) scale(1.1); }
+    35%{ transform:translate(-50%,-50%) scale(1); }
+    80%{ opacity:1; }
+    100%{ opacity:0; transform:translate(-50%,-60%) scale(1); }
+  }
+
+  #muteBtn{
+    position:absolute; top:10px; right:10px; z-index:65;
+    background:var(--panel); border:2px solid var(--neon-cyan); color:var(--neon-cyan);
+    font-size:16px; padding:4px 8px; cursor:pointer;
+  }
+
+  @media (max-width:520px){
+    .title{ font-size:28px; }
+    #target-frac{ font-size:20px; }
+    .stone{ width:62px; height:44px; }
+    .stone .frac{ font-size:12px; }
+    #player{ width:36px; height:36px; font-size:26px; line-height:36px; }
+  }
+</style>
+</head>
+<body>
+<div id="game">
+  <div id="scanlines"></div>
+  <div id="vignette"></div>
+  <button id="muteBtn" title="Toggle sound">🔊</button>
+
+  <div id="hud">
+    <div class="hud-box">LEVEL <b id="levelVal">1</b></div>
+    <div id="target-panel">
+      <div id="target-label">FIND THE EQUIVALENT FRACTION</div>
+      <div id="target-frac">1/2</div>
+    </div>
+    <div class="hud-box">SCORE <b id="scoreVal">0</b></div>
+    <div class="hud-box" id="lives">
+      <span class="heart">♥</span><span class="heart">♥</span><span class="heart">♥</span>
+    </div>
+  </div>
+
+  <div id="timer-wrap">
+    <div id="timer-bar-bg"><div id="timer-bar"></div></div>
+  </div>
+
+  <div id="stage">
+    <div class="cloud" style="left:8%;">☁</div>
+    <div class="cloud" style="left:60%; top:10%;">☁</div>
+    <div class="cloud" style="left:80%; top:4%;">☁</div>
+    <div class="bank top"></div>
+    <div class="bank"></div>
+    <div id="river-strip"></div>
+    <div class="startpad"></div>
+    <div id="stones"></div>
+    <div id="player">🐸</div>
+    <div id="levelUpToast">LEVEL UP!</div>
+  </div>
+
+  <div id="startScreen" class="overlay">
+    <div class="title">FRACTION JUMP</div>
+    <div class="subtitle">a stepping-stone river crossing of equivalent fractions</div>
+    <div class="rules">
+      A target fraction appears at the top, like <b>1/3</b>.<br><br>
+      Hop your frog stone-to-stone across the river using
+      <b>← / →</b> (or tap/click a stone) and land on the one
+      that <b>equals</b> the target &mdash; even if it's written
+      differently, like <b>2/6</b>.<br><br>
+      You can't skip stones — hop one at a time — and you're racing
+      the clock. Wrong stone costs a life. Each level adds more
+      stones, trickier look-alikes, and less time.
+    </div>
+    <button class="btn" id="startBtn">▶ START GAME</button>
+  </div>
+
+  <div id="gameOverScreen" class="overlay hidden">
+    <div class="title" style="color:var(--neon-red); text-shadow:0 0 6px var(--neon-red);">GAME OVER</div>
+    <div id="finalScore">Score: 0</div>
+    <div class="subtitle" id="finalLevel">Reached Level 1</div>
+    <button class="btn" id="retryBtn">↺ PLAY AGAIN</button>
+  </div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  // ---------------- Audio ----------------
+  let audioCtx = null;
+  let muted = false;
+  function ensureAudio(){
+    if(!audioCtx){
+      try{ audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
+      catch(e){ audioCtx = null; }
+    }
+  }
+  function beep(freq, dur, type, gainVal, delay){
+    if(muted || !audioCtx) return;
+    delay = delay || 0;
+    const t0 = audioCtx.currentTime + delay;
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = type || "square";
+    osc.frequency.setValueAtTime(freq, t0);
+    gain.gain.setValueAtTime(0, t0);
+    gain.gain.linearRampToValueAtTime(gainVal || 0.15, t0 + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+    osc.connect(gain).connect(audioCtx.destination);
+    osc.start(t0);
+    osc.stop(t0 + dur + 0.02);
+  }
+  const sfx = {
+    hop(){ beep(320, 0.08, "square", 0.08); },
+    correct(){ beep(523,0.1,"square",0.15,0); beep(659,0.1,"square",0.15,0.09); beep(784,0.16,"square",0.18,0.18); },
+    wrong(){ beep(160,0.22,"sawtooth",0.18,0); beep(110,0.28,"sawtooth",0.16,0.08); },
+    tick(){ beep(880,0.04,"square",0.05); },
+    levelUp(){ beep(392,0.1,"square",0.15,0); beep(523,0.1,"square",0.15,0.1); beep(659,0.12,"square",0.16,0.2); beep(880,0.2,"square",0.18,0.32); },
+    lifeLost(){ beep(200,0.3,"triangle",0.2); },
+    gameOver(){ beep(300,0.2,"sawtooth",0.15,0); beep(220,0.2,"sawtooth",0.15,0.18); beep(140,0.4,"sawtooth",0.18,0.36); }
+  };
+
+  // ---------------- Fraction helpers ----------------
+  function gcd(a,b){ a=Math.abs(a); b=Math.abs(b); while(b){ [a,b]=[b, a%b]; } return a || 1; }
+  function reduce(n,d){ const g = gcd(n,d); return [n/g, d/g]; }
+  function valEq(n1,d1,n2,d2){ return n1*d2 === n2*d1; }
+  function randInt(min,max){ return Math.floor(Math.random()*(max-min+1))+min; }
+  function choice(arr){ return arr[randInt(0,arr.length-1)]; }
+  function shuffle(arr){
+    for(let i=arr.length-1;i>0;i--){
+      const j = randInt(0,i);
+      [arr[i],arr[j]] = [arr[j],arr[i]];
+    }
+    return arr;
+  }
+
+  // ---------------- Game state ----------------
+  const els = {
+    levelVal: document.getElementById('levelVal'),
+    scoreVal: document.getElementById('scoreVal'),
+    lives: document.getElementById('lives'),
+    targetFrac: document.getElementById('target-frac'),
+    timerBar: document.getElementById('timer-bar'),
+    stage: document.getElementById('stage'),
+    stones: document.getElementById('stones'),
+    player: document.getElementById('player'),
+    startScreen: document.getElementById('startScreen'),
+    gameOverScreen: document.getElementById('gameOverScreen'),
+    finalScore: document.getElementById('finalScore'),
+    finalLevel: document.getElementById('finalLevel'),
+    startBtn: document.getElementById('startBtn'),
+    retryBtn: document.getElementById('retryBtn'),
+    muteBtn: document.getElementById('muteBtn'),
+    levelUpToast: document.getElementById('levelUpToast')
+  };
+
+  let state = {
+    level: 1,
+    score: 0,
+    lives: 3,
+    stones: [],       // {n,d,x,el,sunk,correct}
+    playerIndex: -1,  // -1 = start pad
+    target: {n:1,d:2},
+    timeLeft: 0,
+    maxTime: 8,
+    running: false,
+    roundActive: false,
+    hopping: false,
+    rafId: null,
+    lastTs: 0,
+    animQueue: []
+  };
+
+  function setLives(n){
+    state.lives = n;
+    const hearts = els.lives.querySelectorAll('.heart');
+    hearts.forEach((h,i)=>{ h.style.opacity = i < n ? '1' : '0.15'; });
+  }
+
+  function updateHud(){
+    els.levelVal.textContent = state.level;
+    els.scoreVal.textContent = state.score;
+    els.targetFrac.textContent = state.target.n + '/' + state.target.d;
+  }
+
+  // ---------------- Round generation ----------------
+  function difficultyForLevel(level){
+    const numStones = Math.min(3 + Math.floor((level-1)/2), 9);
+    const maxDenom = Math.min(2 + level, 12);
+    const maxTime = Math.max(3.2, 9 - level*0.45);
+    const trickyChance = Math.min(0.15 + level*0.08, 0.85);
+    return { numStones, maxDenom, maxTime, trickyChance };
+  }
+
+  function genTarget(maxDenom){
+    let d = randInt(2, Math.max(2, Math.min(maxDenom,8)));
+    let n = randInt(1, d-1);
+    const [tn, td] = reduce(n, d);
+    return {n: tn, d: td};
+  }
+
+  function genCorrectStone(target, level){
+    const maxK = Math.min(2 + Math.floor(level/2), 6);
+    let k = randInt(1, maxK);
+    // occasionally force disguise once level is beyond the tutorial stage
+    if(level >= 2 && k === 1 && Math.random() < 0.7) k = randInt(2,maxK);
+    return { n: target.n*k, d: target.d*k };
+  }
+
+  function genDecoy(target, maxDenom, existingKeys, trickyChance){
+    for(let attempt=0; attempt<40; attempt++){
+      let d = randInt(2, Math.max(2,maxDenom));
+      let n = randInt(1, d-1);
+      if(valEq(n,d,target.n,target.d)) continue;
+      const key = n+'/'+d;
+      if(existingKeys.has(key)) continue;
+
+      // "tricky" decoy: reduces to something that LOOKS like it could be related
+      // (shares numerator or denominator with target) to force real thinking
+      if(Math.random() < trickyChance){
+        if(Math.random() < 0.5){
+          n = target.n; // same numerator, different denom
+          if(d === target.d) d = d + (Math.random()<0.5? -1: 1);
+          if(d < 2) d = 2;
+          if(n >= d) continue;
+        } else {
+          d = target.d; // same denominator, different numerator (unreduced trap)
+          if(n === target.n) n = n + (Math.random()<0.5? -1: 1);
+          if(n < 1 || n >= d) continue;
+        }
+        if(valEq(n,d,target.n,target.d)) continue;
+        const key2 = n+'/'+d;
+        if(existingKeys.has(key2)) continue;
+        return {n,d};
+      }
+      return {n,d};
+    }
+    // fallback: simple safe decoy
+    let n = target.n+1, d = target.d+2;
+    if(n>=d){ n=1; d=target.d+3; }
+    return {n,d};
+  }
+
+  function buildRound(){
+    const diff = difficultyForLevel(state.level);
+    state.maxTime = diff.maxTime;
+    state.target = genTarget(diff.maxDenom);
+
+    const correct = genCorrectStone(state.target, state.level);
+    const stonesData = [correct];
+    const keys = new Set([correct.n+'/'+correct.d]);
+
+    while(stonesData.length < diff.numStones){
+      const decoy = genDecoy(state.target, diff.maxDenom, keys, diff.trickyChance);
+      keys.add(decoy.n+'/'+decoy.d);
+      stonesData.push(decoy);
+    }
+    shuffle(stonesData);
+
+    // layout
+    els.stones.innerHTML = '';
+    state.stones = [];
+    const stageWidth = els.stage.clientWidth || 800;
+    const usableStart = 90;
+    const usableEnd = stageWidth - 40;
+    const span = Math.max(usableEnd - usableStart, 200);
+    const gap = span / (stonesData.length - 1 || 1);
+
+    stonesData.forEach((f, i)=>{
+      const x = stonesData.length === 1 ? stageWidth/2 : usableStart + gap*i;
+      const isCorrect = valEq(f.n,f.d,state.target.n,state.target.d);
+      const stoneObj = { n:f.n, d:f.d, x, sunk:false, correct:isCorrect, el:null };
+
+      const el = document.createElement('div');
+      el.className = 'stone';
+      el.style.left = x + 'px';
+      el.innerHTML = '<div class="rock"><div class="frac"><span class="num">'+f.n+'</span><span class="den">'+f.d+'</span></div></div>';
+      el.addEventListener('click', ()=> onStoneClick(stoneObj));
+      els.stones.appendChild(el);
+      stoneObj.el = el;
+      state.stones.push(stoneObj);
+    });
+
+    state.playerIndex = -1;
+    positionPlayerInstant();
+
+    state.timeLeft = state.maxTime;
+    state.roundActive = true;
+    state.hopping = false;
+    updateHud();
+  }
+
+  function startPadX(){ return 20; }
+
+  function positionPlayerInstant(){
+    const x = state.playerIndex === -1 ? startPadX() : state.stones[state.playerIndex].x;
+    els.player.style.transform = 'translate(-50%,0)';
+    els.player.style.left = x + 'px';
+  }
+
+  // ---------------- Movement ----------------
+  function currentX(){
+    return state.playerIndex === -1 ? startPadX() : state.stones[state.playerIndex].x;
+  }
+
+  function hopTo(newIndex, onLand){
+    if(state.hopping) return;
+    state.hopping = true;
+    const fromX = currentX();
+    const toX = newIndex === -1 ? startPadX() : state.stones[newIndex].x;
+    const rot = toX > fromX ? 8 : -8;
+    els.player.style.setProperty('--rot', rot+'deg');
+    els.player.style.setProperty('--hop-time', '0.26s');
+    els.player.style.left = toX + 'px';
+    els.player.classList.remove('hop');
+    void els.player.offsetWidth; // restart animation
+    els.player.classList.add('hop');
+    sfx.hop();
+    setTimeout(()=>{
+      state.playerIndex = newIndex;
+      state.hopping = false;
+      els.player.classList.remove('hop');
+      if(onLand) onLand();
+    }, 260);
+  }
+
+  function onStoneClick(stoneObj){
+    if(!state.running || !state.roundActive || state.hopping) return;
+    const targetIndex = state.stones.indexOf(stoneObj);
+    if(stoneObj.sunk) return;
+    // queue sequential hops (can't skip stones)
+    const path = [];
+    let cur = state.playerIndex;
+    if(cur < targetIndex){
+      for(let i=cur+1; i<=targetIndex; i++) path.push(i);
+    } else if(cur > targetIndex){
+      for(let i=cur-1; i>=targetIndex; i--) path.push(i);
+    } else {
+      path.push(targetIndex);
+    }
+    runPath(path);
+  }
+
+  function runPath(path){
+    if(!path.length) return;
+    const next = path.shift();
+    hopTo(next, ()=>{
+      const isLastInPath = path.length === 0;
+      if(isLastInPath){
+        evaluateLanding();
+      } else {
+        runPath(path);
+      }
+    });
+  }
+
+  function moveOneStep(dir){
+    if(!state.running || !state.roundActive || state.hopping) return;
+    let newIndex = state.playerIndex + dir;
+    if(newIndex < -1) newIndex = -1;
+    if(newIndex > state.stones.length - 1) newIndex = state.stones.length - 1;
+    if(newIndex === state.playerIndex) return;
+    // skip already-sunk stones? no — you still land on them but they're disabled visually;
+    // simplest: don't allow landing on a sunk stone, hop past it
+    while(newIndex >= 0 && newIndex < state.stones.length && state.stones[newIndex].sunk){
+      newIndex += dir;
+      if(newIndex < -1){ newIndex = -1; break; }
+      if(newIndex > state.stones.length-1){ newIndex = state.stones.length-1; break; }
+    }
+    hopTo(newIndex, evaluateLanding);
+  }
+
+  function evaluateLanding(){
+    if(state.playerIndex === -1) return; // back on start pad, nothing to evaluate
+    const stone = state.stones[state.playerIndex];
+    if(!stone || stone.sunk) return;
+
+    if(stone.correct){
+      handleCorrect(stone);
+    } else {
+      handleWrong(stone);
+    }
+  }
+
+  function handleCorrect(stone){
+    state.roundActive = false;
+    stone.el.classList.add('correct');
+    sfx.correct();
+    const timeBonus = Math.round((state.timeLeft / state.maxTime) * 50);
+    const base = 50 + state.level*10;
+    state.score += base + timeBonus;
+    updateHud();
+    state.level += 1;
+    setTimeout(()=>{
+      showLevelUp();
+      setTimeout(()=>{ buildRound(); }, 650);
+    }, 450);
+  }
+
+  function handleWrong(stone){
+    stone.sunk = true;
+    stone.el.classList.add('wrong');
+    setTimeout(()=> stone.el.classList.add('sunk'), 320);
+    sfx.wrong();
+    loseLife();
+  }
+
+  function loseLife(){
+    setLives(state.lives - 1);
+    sfx.lifeLost();
+    if(state.lives <= 0){
+      endGame();
+      return;
+    }
+    // send frog back to start pad
+    setTimeout(()=>{ hopTo(-1, ()=>{}); }, 200);
+  }
+
+  function showLevelUp(){
+    els.levelUpToast.classList.remove('show');
+    void els.levelUpToast.offsetWidth;
+    els.levelUpToast.textContent = 'LEVEL ' + state.level + '!';
+    els.levelUpToast.classList.add('show');
+    sfx.levelUp();
+  }
+
+  // ---------------- Timer loop ----------------
+  function tick(ts){
+    if(!state.running){ return; }
+    if(!state.lastTs) state.lastTs = ts;
+    const dt = (ts - state.lastTs) / 1000;
+    state.lastTs = ts;
+
+    if(state.roundActive){
+      state.timeLeft -= dt;
+      if(state.timeLeft <= 0){
+        state.timeLeft = 0;
+        onTimeUp();
+      }
+      const pct = Math.max(0, state.timeLeft / state.maxTime) * 100;
+      els.timerBar.style.width = pct + '%';
+      if(pct < 25){
+        els.timerBar.style.background = 'linear-gradient(90deg,#ff3d5a,#ff8f3d)';
+      } else if(pct < 55){
+        els.timerBar.style.background = 'linear-gradient(90deg,#fff23d,#ff8f3d)';
+      } else {
+        els.timerBar.style.background = 'linear-gradient(90deg,#39ff88,#3df5ff)';
+      }
+    }
+    state.rafId = requestAnimationFrame(tick);
+  }
+
+  function onTimeUp(){
+    if(!state.roundActive) return;
+    state.roundActive = false;
+    sfx.wrong();
+    // reveal the correct stone briefly
+    state.stones.forEach(s=>{ if(s.correct) s.el.classList.add('correct'); });
+    loseLifeOnTimeout();
+  }
+
+  function loseLifeOnTimeout(){
+    setLives(state.lives - 1);
+    sfx.lifeLost();
+    if(state.lives <= 0){
+      setTimeout(endGame, 500);
+      return;
+    }
+    setTimeout(()=>{ buildRound(); }, 900);
+  }
+
+  // ---------------- Lifecycle ----------------
+  function startGame(){
+    ensureAudio();
+    if(audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+    state.level = 1;
+    state.score = 0;
+    setLives(3);
+    els.startScreen.classList.add('hidden');
+    els.gameOverScreen.classList.add('hidden');
+    state.running = true;
+    state.lastTs = 0;
+    buildRound();
+    if(state.rafId) cancelAnimationFrame(state.rafId);
+    state.rafId = requestAnimationFrame(tick);
+  }
+
+  function endGame(){
+    state.running = false;
+    state.roundActive = false;
+    sfx.gameOver();
+    if(state.rafId) cancelAnimationFrame(state.rafId);
+    els.finalScore.textContent = 'Score: ' + state.score;
+    els.finalLevel.textContent = 'Reached Level ' + state.level;
+    els.gameOverScreen.classList.remove('hidden');
+  }
+
+  // ---------------- Input ----------------
+  window.addEventListener('keydown', (e)=>{
+    if(e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D'){ e.preventDefault(); moveOneStep(1); }
+    else if(e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A'){ e.preventDefault(); moveOneStep(-1); }
+  });
+
+  els.startBtn.addEventListener('click', startGame);
+  els.retryBtn.addEventListener('click', startGame);
+  els.muteBtn.addEventListener('click', ()=>{
+    muted = !muted;
+    els.muteBtn.textContent = muted ? '🔇' : '🔊';
+  });
+
+  window.addEventListener('resize', ()=>{
+    if(!state.running) return;
+    // reflow stone positions on resize
+    const stageWidth = els.stage.clientWidth || 800;
+    const usableStart = 90;
+    const usableEnd = stageWidth - 40;
+    const span = Math.max(usableEnd - usableStart, 200);
+    const gap = span / (state.stones.length - 1 || 1);
+    state.stones.forEach((s,i)=>{
+      s.x = state.stones.length === 1 ? stageWidth/2 : usableStart + gap*i;
+      s.el.style.left = s.x + 'px';
+    });
+    positionPlayerInstant();
+  });
+
+  setLives(3);
+})();
+</script>
+</body>
+</html>
